@@ -1,0 +1,6 @@
+geopandas>=0.14
+pyogrio>=0.7
+shapely>=2.0
+pyproj>=3.6
+requests>=2.31
+pytest>=8.0

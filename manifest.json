@@ -1,0 +1,38 @@
+{
+  "environment": "gis_qa",
+  "prg": {
+    "url": "https://opendata.geoportal.gov.pl/prg/granice/00_jednostki_administracyjne.zip",
+    "downloaded_at_utc": "2026-09-29T20:23:11.628360+00:00",
+    "zip_sha256": "fea75e56e708b4aaa6c19e72759b41848d13b8d7acddfee8c9b74eb62160862e",
+    "zip_size_mb": 377.7,
+    "layers": {
+      "gminy": {
+        "path": "data/raw/prg/A03_Granice_gmin.shp",
+        "sha256": "2622a68b65bc22e2b2c744cf8be7b0ced8fa1b2479f69fc3f68be81551ab8243"
+      },
+      "powiaty": {
+        "path": "data/raw/prg/A02_Granice_powiatow.shp",
+        "sha256": "a31ea311299421a1551c8d8f4f29954a0dae99d7098f9665c8025ff78ba4f6b8"
+      }
+    }
+  },
+  "terc": {
+    "path": "data/raw/TERC_Urzedowy_2026-09-29.csv",
+    "sha256": "557edb286b399cc7f84a3ee0fbeb809b3928e64da70c7eda8b71fa7f06e585d4",
+    "added_at_utc": "2026-09-29T20:23:19.876046+00:00"
+  },
+  "golden": {
+    "path": "data/golden/golden.gpkg",
+    "built_at_utc": "2026-09-29T20:23:52.517217+00:00",
+    "source_crs": "EPSG:4258",
+    "crs": "EPSG:2180",
+    "counts": {
+      "gminy": 2479,
+      "powiaty": 380
+    },
+    "content_hash": {
+      "gminy": "7ab654de80f450ed65d045d4d1c0b2f53500b93c1de6f8acd5c5c7d6549554a5",
+      "powiaty": "8ca3e5fc7653e4cc801ac01f296c682061781ade201e6315e6847a60ede36ade"
+    }
+  }
+}
