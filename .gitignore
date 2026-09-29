@@ -2,3 +2,4 @@ data/
 .venv/
 *.part
 __pycache__/
+out/

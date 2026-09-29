@@ -1,0 +1,11 @@
+[
+  {
+    "check": "C6",
+    "teryt": "2602072",
+    "value": "Słupia (Jędrzejowska)",
+    "reference": "Słupia",
+    "reason": "Rozbieżność między rejestrami: PRG dodaje dopisek odróżniający od innej gminy Słupia, TERC podaje nazwę bez dopisku. Nie jest to błąd danych.",
+    "sources": "PRG A03_Granice_gmin (manifest.json) vs TERC urzędowy 2026-09-29",
+    "verified_utc": "2026-09-29"
+  }
+]
