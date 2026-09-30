@@ -101,3 +101,14 @@ def test_c6_exception_exact_only(clean):
     g.loc[2, "name"] = "Gdansk (Pomorski)"          # zepsuta nazwa -> wyjatek nie pasuje
     findings, _ = run_all(g, p, t, PARAMS, exc)
     assert "C6" in checks_hit(findings, teryt)
+
+
+def test_measurements_are_json_and_threshold_free(clean):
+    """Pomiary musza dac sie zapisac w Observation (JSON) i nie zalezec od progow."""
+    import json
+    from measures import measure
+    g, p, t = clean
+    m = measure(g, p, t)
+    json.dumps(m)
+    assert m["n_features"] == len(g)
+    assert "tol" not in json.dumps(m)
