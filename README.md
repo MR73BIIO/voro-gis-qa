@@ -161,4 +161,4 @@ Code under the [MIT License](LICENSE). The data keep the terms of their publishe
 ## Author
 
 Marcin Ruszczak, [MR73BIIO](https://github.com/MR73BIIO), [LinkedIn](https://www.linkedin.com/in/marcin-ruszczak-27b37b19b)
-GIS, data validation, Python. Polish, German, English.
+GIS, data validation, Python. Polish, German, Russian, English.
