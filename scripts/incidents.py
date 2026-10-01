@@ -64,6 +64,19 @@ def build_incidents(m: dict, findings: list, params: dict) -> list:
                 if b is not None and _bbox_hit(gb, b):
                     uf.union(first, t)
 
+    tol_b = params.get("c7_border_tol_m2")
+    for p in (m.get("border") or []):
+        if p.get("reference"):
+            continue
+        if tol_b is None or p["area_m2"] <= tol_b or not p["touching"]:
+            continue
+        first = p["touching"][0]
+        for t in p["touching"][1:]:
+            uf.union(first, t)
+        for t, b in broken.items():
+            if b is not None and _bbox_hit(p["bounds"], b):
+                uf.union(first, t)
+
     groups = defaultdict(list)
     for f in findings:
         if f["teryt"] is None:

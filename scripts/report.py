@@ -26,6 +26,7 @@ CHECKS = [
     ("C4", "Coordinate system and extent of Poland", "critical"),
     ("C5", "Overlaps and gaps between neighbours", "high"),
     ("C6", "Name present and equal to TERC", "medium"),
+    ("C7", "Coverage of the state border", "high"),
 ]
 SEV_EN = {"krytyczna": "critical", "wysoka": "high", "srednia": "medium"}
 
@@ -68,7 +69,8 @@ def collect(run: dict, manifest: dict) -> dict:
         "incidents": incidents,
         "incidents_by_severity": {k: sev.get(k, 0) for k in ("critical", "high", "medium")},
         "exceptions": run.get("known_exceptions", []),
-        "exceptions_applied": run.get("diagnostics", {}).get("c6_known_exceptions_applied", 0),
+        "exceptions_applied": (run.get("diagnostics", {}).get("c6_known_exceptions_applied", 0)
+                               + run.get("diagnostics", {}).get("c7_known_exceptions_applied", 0)),
         "params": run["params"],
         "params_hash": short_hash(run["params"]),
         "exceptions_hash": short_hash(run.get("known_exceptions", [])),
@@ -121,9 +123,15 @@ def render_md(d: dict) -> str:
     L += ["## Known exceptions", ""]
     if d["exceptions"]:
         L += [f"Applied in this run: {d['exceptions_applied']}.", "",
-              "| Code | Value | Reference | Reason |", "|---|---|---|---|"]
+              "| Check | What | Expected | Reason |", "|---|---|---|---|"]
         for e in d["exceptions"]:
-            L.append(f"| {e['teryt']} | {e['value']} | {e['reference']} | {e['reason']} |")
+            if e["check"] == "C7":
+                what = f"{e['kind']} piece"
+                expected = f"{e['area_m2']:,.0f} m2 (± {e['tolerance_m2']} m2)"
+            else:
+                what = f"{e['teryt']} {e['value']}"
+                expected = e["reference"]
+            L.append(f"| {e['check']} | {what} | {expected} | {e['reason']} |")
     else:
         L.append("None.")
     L += ["", "## Who decided", "",

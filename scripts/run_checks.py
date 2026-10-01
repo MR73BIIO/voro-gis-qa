@@ -53,7 +53,15 @@ def main():
     t0 = time.time()
     gminy = gpd.read_file(args.data, layer="gminy")
     powiaty = gpd.read_file(args.data, layer="powiaty")
-    m = measure(gminy, powiaty, terc)
+    try:
+        state = gpd.read_file(args.data, layer="panstwo")
+    except Exception:
+        state = None
+    try:
+        reference = gpd.read_file(args.data, layer="known_uncovered")
+    except Exception:
+        reference = None
+    m = measure(gminy, powiaty, terc, state, reference)
     findings, diagnostics = judge(m, params, exceptions)
     incidents = build_incidents(m, findings, params)
     elapsed = time.time() - t0
@@ -99,7 +107,7 @@ def main():
     print(f"Zbior: {args.data.name}  |  gmin: {len(gminy)}  |  czas: {elapsed:.1f} s")
     print(f"Status zbioru: {dataset_status}")
     print(f"PASS {counts.get('PASS', 0)}  REVIEW {counts.get('REVIEW', 0)}  REJECT {counts.get('REJECT', 0)}")
-    for c in ("C1", "C2", "C3", "C4", "C5", "C6"):
+    for c in ("C1", "C2", "C3", "C4", "C5", "C6", "C7"):
         print(f"  {c}: {result['findings_per_check'].get(c, 0)} znalezisk")
     print("Diagnostyka:", json.dumps(diagnostics, ensure_ascii=False))
     print(f"Incydenty: {len(incidents)} (znalezisk: {len(findings)})")

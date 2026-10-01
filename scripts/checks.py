@@ -18,7 +18,7 @@ from pyproj import Transformer
 from measures import measure
 
 SEVERITY = {"C1": "krytyczna", "C2": "krytyczna", "C3": "krytyczna",
-            "C4": "krytyczna", "C5": "wysoka", "C6": "srednia"}
+            "C4": "krytyczna", "C5": "wysoka", "C6": "srednia", "C7": "wysoka"}
 PL_BBOX_LONLAT = (14.07, 49.00, 24.16, 54.84)
 
 
@@ -134,6 +134,49 @@ def c6_attributes(m, params, exceptions=(), diagnostics=None):
     return out
 
 
+def c7_border(m, params, exceptions=(), diagnostics=None):
+    """Granica panstwa: kawalki ponad progiem. Wyjatek (np. morze) tylko przy zgodnym rodzaju
+    i powierzchni z dokladnoscia do tolerance_m2."""
+    out = []
+    if m.get("border") is None:
+        if diagnostics is not None:
+            diagnostics["c7"] = "pominiete: brak warstwy granicy panstwa"
+        return out
+    tol = params["c7_border_tol_m2"]
+    allowed = [e for e in exceptions if e["check"] == "C7"]
+    applied, below = 0, []
+    for p in m["border"]:
+        if p.get("reference"):
+            # znany obszar (morze): musi sie zgadzac z wyjatkiem; jesli nie, zmienil sie caly obszar
+            if any(e["kind"] == p["kind"] and abs(e["area_m2"] - p["area_m2"]) <= e["tolerance_m2"]
+                   for e in allowed):
+                applied += 1
+            else:
+                out.append(finding("C7", None,
+                                   f"znany obszar bez gmin ma inna powierzchnie: {p['area_m2']:.1f} m2"))
+            continue
+        if p["area_m2"] <= tol:
+            below.append(p["area_m2"])
+            continue
+        if any(e["kind"] == p["kind"] and abs(e["area_m2"] - p["area_m2"]) <= e["tolerance_m2"]
+               for e in allowed):
+            applied += 1
+            continue
+        what = "kawalek Polski bez gminy" if p["kind"] == "uncovered" else "gmina poza granica panstwa"
+        detail = f"{what}: {p['area_m2']:.1f} m2"
+        if p["touching"]:
+            for t in p["touching"]:
+                out.append(finding("C7", t, detail))
+        else:
+            out.append(finding("C7", None, detail))
+    if diagnostics is not None:
+        diagnostics["c7_pieces_total"] = len(m["border"])
+        diagnostics["c7_pieces_below_tol"] = len(below)
+        diagnostics["c7_max_below_tol_m2"] = float(max(below)) if below else 0.0
+        diagnostics["c7_known_exceptions_applied"] = applied
+    return out
+
+
 def judge(m: dict, params: dict, exceptions=()):
     """Ocena pomiarow -> (znaleziska, diagnostyka)."""
     diagnostics, findings = {}, []
@@ -147,8 +190,9 @@ def judge(m: dict, params: dict, exceptions=()):
     if crs is None:
         findings += c3_nesting(m, params)
         findings += c5_topology(m, params, diagnostics)
+        findings += c7_border(m, params, exceptions, diagnostics)
     else:
-        diagnostics["skipped"] = "C3, C5 pominiete z powodu zlego CRS"
+        diagnostics["skipped"] = "C3, C5, C7 pominiete z powodu zlego CRS"
     findings += c6_attributes(m, params, exceptions, diagnostics)
     return findings, diagnostics
 

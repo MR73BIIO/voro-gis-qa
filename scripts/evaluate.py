@@ -16,7 +16,7 @@ from collections import defaultdict
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
-CHECKS = ["C1", "C2", "C3", "C4", "C5", "C6"]
+CHECKS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]
 
 
 def evaluate(truth: dict, findings: list) -> dict:

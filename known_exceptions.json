@@ -4,8 +4,17 @@
     "teryt": "2602072",
     "value": "Słupia (Jędrzejowska)",
     "reference": "Słupia",
-    "reason": "Difference between two official registers: PRG adds a suffix to tell it apart from another municipality called Słupia, TERC uses the name without the suffix. Not a data error.",
-    "sources": "PRG A03_Granice_gmin (manifest.json) vs TERC official version 2026-09-29",
+    "reason": "Rozbieżność między rejestrami: PRG dodaje dopisek odróżniający od innej gminy Słupia, TERC podaje nazwę bez dopisku. Nie jest to błąd danych.",
+    "sources": "PRG A03_Granice_gmin (manifest.json) vs TERC urzędowy 2026-09-29",
     "verified_utc": "2026-09-29"
+  },
+  {
+    "check": "C7",
+    "kind": "uncovered",
+    "area_m2": 8776989565.0,
+    "tolerance_m2": 1.0,
+    "reason": "Territorial sea: the state layer includes the sea, the municipality layer does not. Not a data error.",
+    "sources": "PRG A00_Granice_panstwa vs A03_Granice_gmin, explored with scripts/explore_border.py",
+    "verified_utc": "2026-10-01"
   }
 ]

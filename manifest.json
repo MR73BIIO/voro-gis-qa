@@ -23,7 +23,7 @@
   },
   "golden": {
     "path": "data/golden/golden.gpkg",
-    "built_at_utc": "2026-09-29T20:23:52.517217+00:00",
+    "built_at_utc": "2026-10-01T16:40:29.680692+00:00",
     "source_crs": "EPSG:4258",
     "crs": "EPSG:2180",
     "counts": {
@@ -32,7 +32,9 @@
     },
     "content_hash": {
       "gminy": "7ab654de80f450ed65d045d4d1c0b2f53500b93c1de6f8acd5c5c7d6549554a5",
-      "powiaty": "8ca3e5fc7653e4cc801ac01f296c682061781ade201e6315e6847a60ede36ade"
+      "powiaty": "8ca3e5fc7653e4cc801ac01f296c682061781ade201e6315e6847a60ede36ade",
+      "panstwo": "72231dceab9cef7aab97e8ce40876af4bb2efe6ec3c09135a5be2a2639325d2d",
+      "known_uncovered": "f3fc1343a293bb5e686a23bd09b8ccb9e6ce21c22a0ad765965e0aa25c4cc6a7"
     }
   }
 }

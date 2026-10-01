@@ -3,5 +3,6 @@
   "c3_buffer_m": 1.0,
   "c4_margin_m": 20000,
   "c5_overlap_tol_m2": 1.0,
-  "c5_gap_tol_m2": 1.0
+  "c5_gap_tol_m2": 1.0,
+  "c7_border_tol_m2": 150.0
 }

@@ -9,7 +9,7 @@ Wynik jest w pelni serializowalny do JSON (trafia do Observation.payload).
 import shapely
 
 
-def measure(gminy, powiaty, terc: dict) -> dict:
+def measure(gminy, powiaty, terc: dict, state=None, reference=None) -> dict:
     """Fakty o zbiorze gmin. Kolejnosc 'features' = kolejnosc wierszy."""
     teryt = gminy["teryt"].astype(str).tolist()
     names = ["" if n is None else " ".join(str(n).split()) for n in gminy["name"]]
@@ -51,6 +51,7 @@ def measure(gminy, powiaty, terc: dict) -> dict:
 
     # szczeliny: dziury w polaczonym pokryciu
     gaps = []
+    union = None
     if len(geoms):
         union = shapely.union_all(geoms)
         for poly in getattr(union, "geoms", [union]):
@@ -61,6 +62,35 @@ def measure(gminy, powiaty, terc: dict) -> dict:
                              "bounds": [float(b) for b in hole.bounds],
                              "touching": [t_ok[k] for k in idx]})
 
+    # granica panstwa: kawalki Polski bez gminy i kawalki gmin poza Polska (bez progow)
+    border = None
+    if state is not None and union is not None:
+        state_geom = shapely.union_all(state.geometry.values)
+        zone = state_geom.boundary.buffer(1.0)
+        shapely.prepare(zone)
+        border = []
+        uncovered = state_geom.difference(union)
+        if reference is not None and len(reference):
+            ref_geom = shapely.union_all(reference.geometry.values)
+            in_ref = uncovered.intersection(ref_geom)
+            # znany obszar bez gmin (morze) jako JEDEN kawalek odniesienia
+            border.append({"kind": "uncovered", "reference": True,
+                           "area_m2": float(in_ref.area),
+                           "bounds": [float(b) for b in in_ref.bounds] if not in_ref.is_empty else None,
+                           "at_state_border": True, "touching": []})
+            uncovered = uncovered.difference(ref_geom)
+        for kind, diff in (("uncovered", uncovered),
+                           ("outside", union.difference(state_geom))):
+            for piece in getattr(diff, "geoms", [diff]):
+                if piece.is_empty or piece.area <= 0:
+                    continue
+                idx = ok.sindex.query(piece.buffer(1.0), predicate="intersects")
+                border.append({"kind": kind,
+                               "area_m2": float(piece.area),
+                               "bounds": [float(b) for b in piece.bounds],
+                               "at_state_border": bool(zone.intersects(piece)),
+                               "touching": [t_ok[k] for k in idx]})
+
     return {
         "crs": gminy.crs.to_string() if gminy.crs is not None else None,
         "n_features": len(features),
@@ -68,4 +98,5 @@ def measure(gminy, powiaty, terc: dict) -> dict:
         "n_pairs_checked": int(len(areas)),
         "overlaps": overlaps,
         "gaps": gaps,
+        "border": border,
     }

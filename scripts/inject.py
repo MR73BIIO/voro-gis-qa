@@ -39,9 +39,11 @@ BASE = Path(__file__).resolve().parents[1]
 MANIFEST = BASE / "manifest.json"
 GOLDEN = BASE / "data" / "golden" / "golden.gpkg"
 
+# E1-E8 = domyslny zestaw (seed 42 z README). E9 tylko na zyczenie (--types ... E9).
 ALL_TYPES = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"]
+EXTRA_TYPES = ["E9"]
 EXPECTED = {"E1": ["C1"], "E2": ["C2"], "E3": ["C3"], "E4": ["C4"],
-            "E5": ["C5"], "E6": ["C5"], "E7": ["C6"], "E8": ["C6"]}
+            "E5": ["C5"], "E6": ["C5"], "E7": ["C6"], "E8": ["C6"], "E9": ["C7"]}
 PL = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
 PL_CHARS = set("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ")
 
@@ -106,12 +108,24 @@ def e6_gap(geom, nb_geom, rng):
     return geom.difference(cut), round(r, 1)
 
 
+def e9_border_gap(geom, state_boundary, rng):
+    """Szczelina przy granicy panstwa: wyciecie polkola w miejscu, gdzie gmina styka sie z granica."""
+    shared = geom.boundary.intersection(state_boundary)
+    lines = [g for g in getattr(shared, "geoms", [shared]) if g.length > 0]
+    if not lines:
+        return None, None
+    line = max(lines, key=lambda g: g.length)
+    r = float(rng.uniform(20, 100))
+    cut = line.interpolate(0.5, normalized=True).buffer(r)
+    return geom.difference(cut), round(r, 1)
+
+
 def e4_wrong_crs(geom, crs):
     return gpd.GeoSeries([geom], crs=crs).to_crs("EPSG:4326").iloc[0]
 
 
 # ---------------------------------------------------------------- rdzen
-def inject(gminy, powiaty, seed: int, n: int, types=None):
+def inject(gminy, powiaty, seed: int, n: int, types=None, state=None):
     """Zwraca (zepsuty GeoDataFrame, lista wpisow truth). Wejscie nie jest zmieniane."""
     types = types or ALL_TYPES
     rng = np.random.default_rng(seed)
@@ -121,6 +135,10 @@ def inject(gminy, powiaty, seed: int, n: int, types=None):
     existing = set(g["teryt"])
     pow_codes = sorted(powiaty["teryt"].astype(str))
     row_of = {t: i for i, t in enumerate(g["teryt"])}
+
+    state_boundary = None
+    if state is not None:
+        state_boundary = shapely.union_all(state.geometry.values).boundary
 
     blocked, truth = set(), []
     order = [g["teryt"][i] for i in rng.permutation(len(g))]
@@ -139,6 +157,12 @@ def inject(gminy, powiaty, seed: int, n: int, types=None):
                 t = pick(lambda t: PL_CHARS & set(str(g.at[row_of[t], "name"])))
             elif etype == "E6":
                 t = pick(lambda t: len(nb[t]) > 0)
+            elif etype == "E9":
+                if state_boundary is None:
+                    print("UWAGA: E9 wymaga warstwy granicy panstwa - pominiete")
+                    break
+                t = pick(lambda t: g.at[row_of[t], "geometry"].boundary.intersection(
+                    state_boundary).length > 0)
             elif etype == "E2":
                 t = pick(lambda t: True)
             else:
@@ -187,6 +211,14 @@ def inject(gminy, powiaty, seed: int, n: int, types=None):
                 g.at[i, "geometry"] = new_geom
                 entry.update(detail=f"szczelina r={r} m przy granicy z {other}",
                              collateral=sorted(nb[t]))
+            elif etype == "E9":
+                new_geom, r = e9_border_gap(g.at[i, "geometry"], state_boundary, rng)
+                if new_geom is None:
+                    print(f"UWAGA: {t} nie styka sie z granica panstwa - E9 pominiete")
+                    continue
+                g.at[i, "geometry"] = new_geom
+                entry.update(detail=f"szczelina przy granicy panstwa r={r} m",
+                             collateral=sorted(nb[t]))
             elif etype == "E7":
                 old = str(g.at[i, "name"])
                 g.at[i, "name"] = old.translate(PL)
@@ -203,7 +235,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, required=True)
     ap.add_argument("--n", type=int, default=20, help="liczba bledow kazdego typu")
-    ap.add_argument("--types", nargs="*", default=ALL_TYPES)
+    ap.add_argument("--types", nargs="*", default=ALL_TYPES,
+                    help="domyslnie E1-E8; E9 (szczelina przy granicy panstwa) na zyczenie")
     args = ap.parse_args()
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -216,7 +249,11 @@ def main():
     if golden_hash != manifest["golden"]["content_hash"]["gminy"]:
         sys.exit("BLAD: zloty zbior rozni sie od manifestu - przerwano.")
 
-    corrupted, truth = inject(gminy, powiaty, args.seed, args.n, args.types)
+    try:
+        state = gpd.read_file(GOLDEN, layer="panstwo")
+    except Exception:
+        state = None
+    corrupted, truth = inject(gminy, powiaty, args.seed, args.n, args.types, state)
 
     out = BASE / "data" / "runs" / f"seed_{args.seed}"
     out.mkdir(parents=True, exist_ok=True)
@@ -225,6 +262,12 @@ def main():
         gpkg.unlink()
     corrupted.to_file(gpkg, layer="gminy", driver="GPKG")
     powiaty.to_file(gpkg, layer="powiaty", driver="GPKG")
+    if state is not None:
+        state.to_file(gpkg, layer="panstwo", driver="GPKG")
+    try:
+        gpd.read_file(GOLDEN, layer="known_uncovered").to_file(gpkg, layer="known_uncovered", driver="GPKG")
+    except Exception:
+        pass
 
     record = {
         "seed": args.seed, "n_per_type": args.n, "types": args.types,

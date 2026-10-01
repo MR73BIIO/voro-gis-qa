@@ -21,7 +21,8 @@ import shapely
 BASE = Path(__file__).resolve().parents[1]
 MANIFEST = BASE / "manifest.json"
 GOLDEN = BASE / "data" / "golden" / "golden.gpkg"
-TARGET_CRS = "EPSG:2180"          # metryczny - wszystkie powierzchnie i odleglosci
+TARGET_CRS = "EPSG:2180"
+KNOWN_UNCOVERED_MIN_M2 = 1_000_000  # 1 km2: morze tak, paski przy granicy (max ~32 m2) nie          # metryczny - wszystkie powierzchnie i odleglosci
 EXPECTED = {"gminy": 2479, "powiaty": 380}   # stan PRG z 2026; zmiana = ostrzezenie, nie blad
 PL_CHARS = set("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ")
 
@@ -90,6 +91,20 @@ def validate(gminy, powiaty) -> list[str]:
     return errors
 
 
+def read_state():
+    """Warstwa granicy panstwa z tej samej paczki PRG (A00), jako jeden obiekt w EPSG:2180."""
+    hits = [p for p in (BASE / "data" / "raw" / "prg").rglob("*.shp") if "panstw" in p.name.lower()]
+    if len(hits) != 1:
+        return None
+    st = gpd.read_file(hits[0]).to_crs(TARGET_CRS)
+    geom = shapely.union_all(st.geometry.values)
+    return gpd.GeoDataFrame({"name": ["Polska"]}, geometry=[geom], crs=TARGET_CRS)
+
+
+def state_hash(gdf) -> str:
+    return hashlib.sha256(shapely.to_wkb(shapely.normalize(gdf.geometry.iloc[0]))).hexdigest()
+
+
 def build() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     layers = manifest["prg"]["layers"]
@@ -110,6 +125,20 @@ def build() -> None:
         GOLDEN.unlink()
     gminy.to_file(GOLDEN, layer="gminy", driver="GPKG")
     powiaty.to_file(GOLDEN, layer="powiaty", driver="GPKG")
+    state = read_state()
+    if state is not None:
+        state.to_file(GOLDEN, layer="panstwo", driver="GPKG")
+        # Znane obszary bez gmin (morze): kawalki panstwa bez gmin wieksze niz 1 km2.
+        # Zapisane jako geometria odniesienia, zeby nowa dziura przy brzegu byla osobnym kawalkiem.
+        diff = state.geometry.iloc[0].difference(shapely.union_all(gminy.geometry.values))
+        big = [p for p in getattr(diff, "geoms", [diff]) if p.area > KNOWN_UNCOVERED_MIN_M2]
+        if big:
+            ref = gpd.GeoDataFrame({"name": ["known uncovered"]},
+                                   geometry=[shapely.union_all(big)], crs=TARGET_CRS)
+            ref.to_file(GOLDEN, layer="known_uncovered", driver="GPKG")
+            print(f"Znane obszary bez gmin: {len(big)}, razem {ref.area.iloc[0]:,.1f} m2")
+    else:
+        print("UWAGA: brak warstwy granicy panstwa (A00) - C7 nie bedzie dzialac")
 
     # hash liczony z tego, co faktycznie zapisano (odczyt zwrotny)
     g_back = gpd.read_file(GOLDEN, layer="gminy").sort_values("teryt").reset_index(drop=True)
@@ -123,6 +152,14 @@ def build() -> None:
         "counts": {"gminy": len(g_back), "powiaty": len(p_back)},
         "content_hash": {"gminy": content_hash(g_back), "powiaty": content_hash(p_back)},
     }
+    if state is not None:
+        s_back = gpd.read_file(GOLDEN, layer="panstwo")
+        manifest["golden"]["content_hash"]["panstwo"] = state_hash(s_back)
+        try:
+            r_back = gpd.read_file(GOLDEN, layer="known_uncovered")
+            manifest["golden"]["content_hash"]["known_uncovered"] = state_hash(r_back)
+        except Exception:
+            pass
     MANIFEST.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"OK. Zloty zbior: {len(g_back)} gmin, {len(p_back)} powiatow")
     print(f"    hash gmin: {manifest['golden']['content_hash']['gminy'][:16]}...")
@@ -132,9 +169,12 @@ def verify() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     expected = manifest["golden"]["content_hash"]
     ok = True
-    for layer in ("gminy", "powiaty"):
-        gdf = gpd.read_file(GOLDEN, layer=layer).sort_values("teryt").reset_index(drop=True)
-        actual = content_hash(gdf)
+    for layer in expected:
+        gdf = gpd.read_file(GOLDEN, layer=layer)
+        if layer in ("panstwo", "known_uncovered"):
+            actual = state_hash(gdf)
+        else:
+            actual = content_hash(gdf.sort_values("teryt").reset_index(drop=True))
         status = "OK" if actual == expected[layer] else "ZMIENIONY!"
         ok &= actual == expected[layer]
         print(f"{layer}: {status}")
