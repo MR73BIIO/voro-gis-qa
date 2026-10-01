@@ -58,6 +58,7 @@ def measure(gminy, powiaty, terc: dict) -> dict:
                 hole = shapely.Polygon(ring)
                 idx = ok.sindex.query(hole.buffer(1.0), predicate="intersects")
                 gaps.append({"area_m2": float(hole.area),
+                             "bounds": [float(b) for b in hole.bounds],
                              "touching": [t_ok[k] for k in idx]})
 
     return {

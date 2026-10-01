@@ -18,7 +18,9 @@ from pathlib import Path
 
 import geopandas as gpd
 
-from checks import load_terc_gminy, run_all
+from checks import judge, load_terc_gminy
+from incidents import build_incidents
+from measures import measure
 
 BASE = Path(__file__).resolve().parents[1]
 MANIFEST = BASE / "manifest.json"
@@ -51,7 +53,9 @@ def main():
     t0 = time.time()
     gminy = gpd.read_file(args.data, layer="gminy")
     powiaty = gpd.read_file(args.data, layer="powiaty")
-    findings, diagnostics = run_all(gminy, powiaty, terc, params, exceptions)
+    m = measure(gminy, powiaty, terc)
+    findings, diagnostics = judge(m, params, exceptions)
+    incidents = build_incidents(m, findings, params)
     elapsed = time.time() - t0
 
     per_feature = {}
@@ -78,6 +82,8 @@ def main():
         "findings_per_check": dict(Counter(f["check"] for f in findings)),
         "diagnostics": diagnostics,
         "elapsed_s": round(elapsed, 1),
+        "n_incidents": len(incidents),
+        "incidents": incidents,
         "findings": findings,
     }
     OUT.mkdir(exist_ok=True)
@@ -90,6 +96,7 @@ def main():
     for c in ("C1", "C2", "C3", "C4", "C5", "C6"):
         print(f"  {c}: {result['findings_per_check'].get(c, 0)} znalezisk")
     print("Diagnostyka:", json.dumps(diagnostics, ensure_ascii=False))
+    print(f"Incydenty: {len(incidents)} (znalezisk: {len(findings)})")
     for f in findings[:15]:
         print(f"  - {f['check']} {f['teryt']}: {f['detail']}")
     if len(findings) > 15:

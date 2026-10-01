@@ -63,6 +63,22 @@ def evaluate(truth: dict, findings: list) -> dict:
             "false_alarm_examples": dict(fp_examples)}
 
 
+def evaluate_incidents(truth: dict, incidents: list) -> dict:
+    """Ile bledow trafilo do incydentow i czy sa incydenty bez zwiazku z bledami."""
+    targets = {e["teryt"] for e in truth["injected"]}
+    touched = targets | {c for e in truth["injected"] for c in e["collateral"]}
+    covered = sum(1 for e in truth["injected"]
+                  if any(e["teryt"] in inc["members"] for inc in incidents))
+    with_target = sum(1 for inc in incidents if targets & set(inc["members"]))
+    only_collateral = sum(1 for inc in incidents
+                          if not (targets & set(inc["members"])) and set(inc["members"]) <= touched)
+    unrelated = sum(1 for inc in incidents
+                    if inc["members"] and not (set(inc["members"]) & touched))
+    return {"n_incidents": len(incidents), "errors_covered": covered,
+            "n_errors": len(truth["injected"]), "incidents_with_target": with_target,
+            "incidents_only_collateral": only_collateral, "incidents_unrelated": unrelated}
+
+
 def fmt(x):
     return "  -  " if x is None else f"{x:.3f}"
 
@@ -93,6 +109,13 @@ def main():
     for c, ex in res["false_alarm_examples"].items():
         for x in ex:
             print(f"  FALSZYWY ALARM {c} {x}")
+
+    if "incidents" in run:
+        ri = evaluate_incidents(truth, run["incidents"])
+        res["incidents"] = ri
+        print(f"\nIncydenty: {ri['n_incidents']} | bledy w incydentach: {ri['errors_covered']}/{ri['n_errors']}"
+              f" | z celem: {ri['incidents_with_target']} | tylko collateral: {ri['incidents_only_collateral']}"
+              f" | bez zwiazku z bledami: {ri['incidents_unrelated']}")
 
     out = fpath.with_name(fpath.stem.replace("findings", "eval") + ".json")
     out.write_text(json.dumps({"truth": str(args.truth), "findings": str(fpath), **res},

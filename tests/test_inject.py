@@ -59,3 +59,21 @@ def test_all_errors_detected_no_false_alarms(grid):
     for etype, pe in res["per_error"].items():
         assert pe["detected"] == pe["injected"], (etype, pe["missed"])
     assert all(m["fp"] == 0 for m in res["per_check"].values())
+
+
+def test_incidents_cover_every_error(grid):
+    from checks import judge
+    from evaluate import evaluate_incidents
+    from incidents import build_incidents
+    from measures import measure
+    g, p, terc = grid
+    m0 = measure(g, p, terc)
+    assert build_incidents(m0, judge(m0, PARAMS)[0], PARAMS) == []
+    for seed in (3, 7, 42):
+        corrupted, truth = inject(g, p, seed=seed, n=1)
+        m = measure(corrupted, p, terc)
+        findings, _ = judge(m, PARAMS)
+        res = evaluate_incidents({"injected": truth}, build_incidents(m, findings, PARAMS))
+        assert res["errors_covered"] == res["n_errors"]
+        assert res["incidents_unrelated"] == 0
+        assert res["n_incidents"] < len(findings)
