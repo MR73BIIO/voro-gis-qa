@@ -42,7 +42,13 @@ The one difference is municipality `2602072`. PRG calls it "Słupia (Jędrzejows
 
 I don't trust this result yet. The errors are big (shifts from 5 m, gaps from 20 m) and none of them is close to a tolerance limit, so the checks had nothing to get wrong. The next injector will have smaller errors, under one metre and close to the limits.
 
-Second problem: 40 topology errors gave 2,146 findings and 396 municipalities in REVIEW. A shifted municipality leaves many thin slivers along its border and every sliver is reported to every neighbour. All of it is correct, but nobody will read such a report. The next step is to group findings by cause, so one shifted municipality gives one incident.
+Second problem: 40 topology errors gave 2,146 findings and 396 municipalities in REVIEW. A shifted municipality leaves many thin slivers along its border and every sliver is reported to every neighbour. All of it is correct, but nobody will read such a report.
+
+So findings are now grouped by cause. Municipalities are linked when they overlap, when they touch the same gap, or when a broken municipality lies where the gap is. Each linked group is one incident.
+
+Seed 42: 2,335 findings became 170 incidents. All 160 errors are inside an incident, and no incident is made of municipalities that no error touched. I wrote these expectations into git before the code (160 of 160 covered, 160 to 190 incidents).
+
+14 incidents contain only neighbours. A municipality moved to the wrong coordinate system lands far away from the hole it left, so the hole becomes its own incident.
 
 ### Same result on two machines
 
@@ -61,6 +67,8 @@ flowchart LR
     D --> E
     E --> F[checks.py<br/>C1-C6 + params.json]
     F --> G[run_checks.py<br/>PASS / REVIEW / REJECT]
+    G --> I[incidents.py<br/>findings grouped by cause]
+    I --> R[report.py<br/>QA report, Markdown + HTML]
     G --> H[evaluate.py<br/>compare with truth.json]
 ```
 
@@ -76,6 +84,10 @@ flowchart LR
 | C6 | name exists and matches TERC | medium |
 
 Thresholds are in [`params.json`](params.json). One critical finding gives REJECT. Only non-critical findings give REVIEW. No findings gives PASS.
+
+### QA report
+
+`report.py` writes a report in Markdown and HTML: status, source and date of the data, coordinate system, results of C1 to C6, all incidents with the probable cause (code and name of the municipality), known exceptions, the parameters with their hash and the code version, and a check that all numbers add up. The report never reads `truth.json`. It shows only what a client would see.
 
 ### Rules I follow
 
@@ -128,6 +140,7 @@ python scripts/run_checks.py
 python scripts/inject.py --seed 42 --n 20
 python scripts/run_checks.py --data data/runs/seed_42/corrupted.gpkg
 python scripts/evaluate.py --truth data/runs/seed_42/truth.json
+python scripts/report.py
 
 python -m pytest -q tests/
 ```
@@ -140,12 +153,12 @@ My server outside Poland could not reach `opendata.geoportal.gov.pl`. If you hav
 
 - The injected errors are too easy (see above).
 - C5 finds gaps as holes inside the coverage. A gap that touches the state border is not a hole, so it is not found yet. Plan: compare with the state border layer.
-- Findings are not grouped yet, one error can give many alarms.
+- A municipality moved to the wrong coordinate system gives two incidents: one for itself, one for the hole it left.
 - VORO's Verification only checks that the decision points to the right reasoning. Checking the decision against the truth comes later. VORO does not learn yet.
 
 ## Next steps
 
-1. QA report with incidents instead of thousands of alarms.
+1. Gaps at the state border.
 2. Verification against the truth after each decision, results saved in memory.
 3. Second run: harder errors, hypothesis written down before the test, thresholds tuned on some regions and tested on others. I will publish the result whatever it is.
 4. Real data: OpenStreetMap boundaries compared with PRG, open tree inventories from cities in Germany, Austria and Switzerland.
