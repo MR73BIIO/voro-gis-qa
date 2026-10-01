@@ -52,6 +52,11 @@ r, d = o.get("reasoning"), o.get("decision")
 if r is not None:
     print(f"Reasoning: readiness {r.readiness}  consistency {r.consistency}  "
           f"completeness {r.completeness}  confidence {r.confidence}")
+byk = o.get("reasoning_by_hypothesis")
+if byk:
+    for key, rec in byk.items():
+        print(f"   {key:<7} readiness {rec.readiness:<7} consistency {rec.consistency}")
+    print("Wybrana hipoteza (Reasoning):", o.get("reasoning_selected_key"))
 if d is not None:
     print("Decision:", d.status, "|", d.control_reason)
     print("Wybrano:", d.selected_hypothesis)
