@@ -42,7 +42,12 @@ print("Stan organizmu przywrocony:", len(report["przywrocone"]), "plikow, usunie
       len(report["usuniete_nowe"]))
 print("Hipotezy:", [h.statement.split(":")[0] for h in o.get("hypotheses", [])],
       "| klucze:", o.get("hypothesis_keys"))
-print("Dowody:", len(context.evidence or []))
+print("Dowody:", [getattr(e, "statement", "?") for e in (context.evidence or [])])
+rel = {}
+for item in context.interpretations or []:
+    r = getattr(item, "relation", "?")
+    rel[r] = rel.get(r, 0) + 1
+print("Interpretacje:", len(context.interpretations or []), rel)
 r, d = o.get("reasoning"), o.get("decision")
 if r is not None:
     print(f"Reasoning: readiness {r.readiness}  consistency {r.consistency}  "
