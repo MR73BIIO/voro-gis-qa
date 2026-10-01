@@ -70,12 +70,25 @@ def main() -> None:
     ap.add_argument("--skip-download", action="store_true")
     args = ap.parse_args()
 
-    if not args.skip_download or not ZIP_PATH.exists():
+    previous = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.exists() else {}
+    downloaded_now = not args.skip_download or not ZIP_PATH.exists()
+    if downloaded_now:
         download(PRG_URL, ZIP_PATH)
-    downloaded_at = datetime.fromtimestamp(ZIP_PATH.stat().st_mtime, timezone.utc).isoformat()
 
     print("Licze hash paczki...")
     zip_hash = sha256_file(ZIP_PATH)
+
+    # Data pobrania = chwila pobrania przez TEN skrypt, nie data pliku na dysku
+    # (data pliku zmienia sie przy kopiowaniu). Przy --skip-download bierzemy date
+    # z poprzedniego manifestu, ale tylko jesli to ta sama paczka (ten sam hash).
+    prev_prg = previous.get("prg", {})
+    same_package = prev_prg.get("zip_sha256") == zip_hash
+    if downloaded_now:
+        downloaded_at = datetime.now(timezone.utc).isoformat()
+    elif same_package:
+        downloaded_at = prev_prg.get("downloaded_at_utc")
+    else:
+        downloaded_at = None
 
     if UNZIP_DIR.exists():
         shutil.rmtree(UNZIP_DIR)
@@ -98,6 +111,13 @@ def main() -> None:
             },
         },
     }
+
+    if downloaded_at is None:
+        manifest["prg"]["download_note"] = (
+            "paczka skopiowana, nie pobrana tym skryptem; data pobrania nieznana")
+    # zloty zbior z poprzedniego manifestu zostaje tylko przy tej samej paczce
+    if same_package and "golden" in previous:
+        manifest["golden"] = previous["golden"]
 
     if args.terc:
         if not args.terc.exists():

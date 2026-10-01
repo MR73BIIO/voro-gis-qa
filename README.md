@@ -142,7 +142,6 @@ My server outside Poland could not reach `opendata.geoportal.gov.pl`. If you hav
 - C5 finds gaps as holes inside the coverage. A gap that touches the state border is not a hole, so it is not found yet. Plan: compare with the state border layer.
 - Findings are not grouped yet, one error can give many alarms.
 - VORO's Verification only checks that the decision points to the right reasoning. Checking the decision against the truth comes later. VORO does not learn yet.
-- `downloaded_at_utc` in the manifest is taken from the file date, which changes when the file is copied. Fix is coming.
 
 ## Next steps
 
