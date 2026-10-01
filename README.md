@@ -46,7 +46,7 @@ Second problem: 40 topology errors gave 2,146 findings and 396 municipalities in
 
 ### Same result on two machines
 
-I built the golden dataset again on a second machine (Python 3.12 on one, 3.14 on the other, different library versions) from the same source file. The content hash is the same: `7ab654de80f450ed…`
+I built the golden dataset again on a second machine, a rented server, from the same source file. The content hash is the same: `7ab654de80f450ed…`
 
 The hash is calculated from TERYT, name and normalized geometry, not from the file itself. A GeoPackage gets new bytes every time it is saved, so a file hash would not prove anything.
 
@@ -79,7 +79,7 @@ Thresholds are in [`params.json`](params.json). One critical finding gives REJEC
 
 ### Rules I follow
 
-- Measuring and judging are separate. `measures.py` only measures (validity, distances, areas of overlaps and gaps, names) and has no thresholds. `checks.py` compares those numbers with `params.json`. I tested the split on 32 datasets and the findings stayed exactly the same.
+- Measuring and judging are separate. `measures.py` only measures (validity, distances, areas of overlaps and gaps, names) and has no thresholds. `checks.py` compares those numbers with `params.json`. I tested the split on 32 synthetic test datasets and the findings stayed exactly the same.
 - The code that decides never reads `truth.json`. Only `evaluate.py` does, after the decision.
 - Rules and expected results go into git before the code that uses them.
 - Numbers must add up. A simple test (statuses must sum to the number of municipalities) already caught a bug in my own code.
