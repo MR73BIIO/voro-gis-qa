@@ -77,6 +77,7 @@ def main():
         "params": params,
         "known_exceptions": exceptions,
         "n_features": len(gminy),
+        "crs": m["crs"],
         "dataset_status": dataset_status,
         "status_counts": {k: counts.get(k, 0) for k in ("PASS", "REVIEW", "REJECT")},
         "findings_per_check": dict(Counter(f["check"] for f in findings)),
@@ -87,7 +88,12 @@ def main():
         "findings": findings,
     }
     OUT.mkdir(exist_ok=True)
-    path = OUT / f"findings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    path = OUT / f"findings_{stamp}.json"
+    n = 1
+    while path.exists():  # dwa przebiegi w tej samej sekundzie nie nadpisuja sie
+        n += 1
+        path = OUT / f"findings_{stamp}_{n}.json"
     path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"Zbior: {args.data.name}  |  gmin: {len(gminy)}  |  czas: {elapsed:.1f} s")

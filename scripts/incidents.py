@@ -71,6 +71,7 @@ def build_incidents(m: dict, findings: list, params: dict) -> list:
         else:
             groups[uf.find(f["teryt"])].append(f)
 
+    names = {feat["teryt"]: feat["name"] for feat in m["features"]}
     incidents = []
     for key, fs in groups.items():
         members = sorted({f["teryt"] for f in fs if f["teryt"] is not None})
@@ -84,6 +85,7 @@ def build_incidents(m: dict, findings: list, params: dict) -> list:
         incidents.append({
             "members": members,
             "probable_cause": cause,
+            "probable_cause_name": names.get(cause) if cause else None,
             "severity": severity,
             "checks": dict(sorted(checks.items())),
             "n_findings": len(fs),
