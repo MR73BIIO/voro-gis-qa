@@ -1,5 +1,7 @@
 # voro-gis-qa
 
+[![DOI](https://zenodo.org/badge/1397864145.svg)](https://doi.org/10.5281/zenodo.23104107)
+
 Quality checks for GIS data, tested against errors I put in on purpose.
 
 I take the official boundaries of Polish municipalities, check them with seven rules and then break the data in a controlled way. Every broken item is logged. After that I can see not only what the checks found, but also what they missed.
