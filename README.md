@@ -2,7 +2,7 @@
 
 Quality checks for GIS data, tested against errors I put in on purpose.
 
-I take the official boundaries of Polish municipalities, check them with six rules and then break the data in a controlled way. Every broken item is logged. After that I can see not only what the checks found, but also what they missed.
+I take the official boundaries of Polish municipalities, check them with seven rules and then break the data in a controlled way. Every broken item is logged. After that I can see not only what the checks found, but also what they missed.
 
 This is also the second environment of VORO, my decision system (more below).
 
@@ -38,7 +38,7 @@ The one difference is municipality `2602072`. PRG calls it "Słupia (Jędrzejows
 | E7 Polish characters removed from the name | 20 | 20 |
 | E8 empty name | 20 | 20 |
 
-160 of 160 found, 0 false alarms, F1 = 1.000 for all six checks.
+160 of 160 found, 0 false alarms, F1 = 1.000 for checks C1 to C6.
 
 I don't trust this result yet. The errors are big (shifts from 5 m, gaps from 20 m) and none of them is close to a tolerance limit, so the checks had nothing to get wrong. The next injector will have smaller errors, under one metre and close to the limits.
 
@@ -49,6 +49,19 @@ So findings are now grouped by cause. Municipalities are linked when they overla
 Seed 42: 2,335 findings became 170 incidents. All 160 errors are inside an incident, and no incident is made of municipalities that no error touched. I wrote these expectations into git before the code (160 of 160 covered, 160 to 190 incidents).
 
 14 incidents contain only neighbours. A municipality moved to the wrong coordinate system lands far away from the hole it left, so the hole becomes its own incident.
+
+### State border
+
+Before writing the border check I only measured. The state layer from PRG has 322,508.2 km2, all municipalities together 313,731.2 km2.
+
+- One piece of 8,777 km2 next to the coastal municipalities: the sea. The state layer includes it, the municipalities don't.
+- 7,417 thin pieces along the land border, the largest 73.6 m2. The two layers draw the same border with slightly different lines.
+
+If I had written the rule first, the golden dataset would have failed because of the Baltic Sea, with thousands of false alarms. So the rule came after the measurement: pieces above 150 m2 (about two times the largest noise) are findings, and the sea is a known exception.
+
+On a synthetic test the first version gave 7 false alarms: a hole near the coast joined the sea, and the whole coast was reported. Now the sea is stored as a reference geometry, and a hole at the coast stays a separate piece. The change is written down in [`docs/note_1.6_design_change.md`](docs/note_1.6_design_change.md).
+
+Results: golden dataset PASS, sea exception applied once. 20 gaps cut at the state border (E9): 20 found, 0 false alarms.
 
 ### Same result on two machines
 
@@ -72,7 +85,7 @@ flowchart LR
     G --> H[evaluate.py<br/>compare with truth.json]
 ```
 
-### The six checks
+### The checks
 
 | Check | What it looks at | Severity |
 |---|---|---|
@@ -82,6 +95,7 @@ flowchart LR
 | C4 | coordinate system and extent of Poland | critical |
 | C5 | overlaps and gaps between neighbours | high |
 | C6 | name exists and matches TERC | medium |
+| C7 | no gaps and no overhangs at the state border | high |
 
 Thresholds are in [`params.json`](params.json). One critical finding gives REJECT. Only non-critical findings give REVIEW. No findings gives PASS.
 
@@ -142,6 +156,8 @@ python scripts/run_checks.py --data data/runs/seed_42/corrupted.gpkg
 python scripts/evaluate.py --truth data/runs/seed_42/truth.json
 python scripts/report.py
 
+python scripts/inject.py --seed 9 --n 20 --types E9   # gaps at the state border
+
 python -m pytest -q tests/
 ```
 
@@ -152,16 +168,14 @@ My server outside Poland could not reach `opendata.geoportal.gov.pl`. If you hav
 ## Known limitations
 
 - The injected errors are too easy (see above).
-- C5 finds gaps as holes inside the coverage. A gap that touches the state border is not a hole, so it is not found yet. Plan: compare with the state border layer.
 - A municipality moved to the wrong coordinate system gives two incidents: one for itself, one for the hole it left.
 - VORO's Verification only checks that the decision points to the right reasoning. Checking the decision against the truth comes later. VORO does not learn yet.
 
 ## Next steps
 
-1. Gaps at the state border.
-2. Verification against the truth after each decision, results saved in memory.
-3. Second run: harder errors, hypothesis written down before the test, thresholds tuned on some regions and tested on others. I will publish the result whatever it is.
-4. Real data: OpenStreetMap boundaries compared with PRG, open tree inventories from cities in Germany, Austria and Switzerland.
+1. Verification against the truth after each decision, results saved in memory.
+2. Second run: harder errors, hypothesis written down before the test, thresholds tuned on some regions and tested on others. I will publish the result whatever it is.
+3. Real data: OpenStreetMap boundaries compared with PRG, open tree inventories from cities in Germany, Austria and Switzerland.
 
 ## Data and license
 

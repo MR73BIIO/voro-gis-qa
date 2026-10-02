@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below."
+title: "voro-gis-qa: quality checks for GIS data, tested against injected errors"
+abstract: >-
+  Quality checks for the official boundaries of Polish municipalities (PRG and TERC):
+  a golden dataset, seven checks (geometry, TERYT codes, county nesting, coordinate
+  system, overlaps and gaps, names, state border), controlled error injection with a log
+  of every error, evaluation against that log, findings grouped into incidents, and a QA
+  report in Markdown and HTML.
+type: software
+authors:
+  - family-names: Ruszczak
+    given-names: Marcin
+    alias: MR73BIIO
+repository-code: "https://github.com/MR73BIIO/voro-gis-qa"
+license: MIT
+version: "0.1"
+date-released: "2026-10-02"
+keywords:
+  - GIS
+  - data quality
+  - quality assurance
+  - geospatial
+  - GeoPandas
+  - Poland
+  - PRG
+  - TERYT
