@@ -1,88 +1,209 @@
-# Baza Drzew 🌳 — Final Project CS50P
+# voro-gis-qa
 
-#### Video Demo: <TUTAJ WSTAW LINK DO NAGRANIA NA YOUTUBE>
+[![DOI](https://zenodo.org/badge/1397864145.svg)](https://doi.org/10.5281/zenodo.23104107)
 
-#### Description:
+Quality checks for GIS data, tested against errors I put in on purpose.
 
-Baza Drzew to konsolowy program w Pythonie do prowadzenia rejestru drzew
-w terenie. Pozwala dodawać drzewa z podstawowymi danymi (gatunek,
-lokalizacja, obwód pnia, wysokość, stan zdrowotny, uwagi), przeglądać je,
-wyszukiwać po gatunku, filtrować po stanie zdrowotnym, liczyć statystyki
-całej bazy i — co jest sercem tego projektu — automatycznie wskazywać,
-które drzewa wymagają kontroli.
+I take the official boundaries of Polish municipalities, check them with seven rules and then break the data in a controlled way. Every broken item is logged. After that I can see not only what the checks found, but also what they missed.
 
-To pierwszy, namacalny krok w stronę cyfrowej inwentaryzacji zieleni
-(„drzewa + dane"), nad którą pracuję poza samym kursem: łączę wiedzę
-o drzewach z Pythonem, a w kolejnych krokach z GIS i danymi z drona.
-Dane testowe w tym repo pochodzą z drzew na mojej własnej posesji —
-to nie jest ćwiczenie w oderwaniu od rzeczywistości, to realny początek
-mojej własnej bazy.
+This is also the second environment of VORO, my decision system (more below).
 
-### Co potrafi program
+## Results
 
-- **Dodawanie drzewa** — gatunek, lokalizacja, obwód pnia (cm), wysokość (m),
-  stan zdrowotny (dobry / dostateczny / zly), uwagi.
-- **Przeglądanie wszystkich drzew** w bazie.
-- **Wyszukiwanie po gatunku** — fragment nazwy, bez rozróżniania wielkości liter.
-- **Filtrowanie po stanie zdrowotnym**.
-- **Statystyki** — liczba drzew, podział wg gatunku i stanu, średni obwód pnia.
-- **Drzewa do kontroli** — funkcja `needs_inspection`, która oznacza drzewa
-  w złym stanie ORAZ duże drzewa (obwód > 200 cm), nawet jeśli ich stan
-  jest oceniony jako dobry. To nie jest przypadek — w realnym zarządzaniu
-  zieleni duże, stare drzewa wymagają regularnej kontroli (tzw. Regelkontrolle)
-  niezależnie od chwilowej oceny, bo ich upadek niesie dużo większe ryzyko.
-  Ta jedna funkcja jest mostem między ćwiczeniem programistycznym
-  a tym, czym realnie chcę się zajmować.
-- **Trwałość danych** — baza zapisuje się i wczytuje z pliku `drzewa.csv`,
-  więc dane nie giną między uruchomieniami.
+### Golden dataset
 
-### Jak uruchomić
+Source: PRG boundary register (GUGiK). Names checked against TERC (Statistics Poland).
 
-Program używa tylko biblioteki standardowej Pythona (`csv`, `sys`) —
-nie trzeba niczego dodatkowo instalować.
+| | |
+|---|---|
+| Municipalities / counties | 2,479 / 380 |
+| TERYT codes | unique, nested correctly, no orphans |
+| Invalid geometries | 0 |
+| Neighbour pairs checked | 7,075, no overlaps, no gaps |
+| Name differences PRG vs TERC | 1 of 2,479 |
+| Status | PASS 2,479 / 2,479 |
 
-```bash
-python3 project.py
+The one difference is municipality `2602072`. PRG calls it "Słupia (Jędrzejowska)", TERC calls it "Słupia". Both registers are official, they just use different names. I did not add a general rule like "ignore brackets", because such a rule could hide a real error later. The case is written down in [`known_exceptions.json`](known_exceptions.json) with both names, the reason and the date. It only works on an exact match. If one letter changes, the check reports it again.
+
+### Injected errors (seed 42)
+
+8 error types, 20 of each, 160 in total.
+
+| Error | Injected | Found |
+|---|---|---|
+| E1 self-intersecting geometry | 20 | 20 |
+| E2 TERYT code copied from another municipality | 20 | 20 |
+| E3 wrong county in the code | 20 | 20 |
+| E4 one municipality in the wrong coordinate system | 20 | 20 |
+| E5 municipality shifted by 5 to 200 m | 20 | 20 |
+| E6 gap on the border with a neighbour | 20 | 20 |
+| E7 Polish characters removed from the name | 20 | 20 |
+| E8 empty name | 20 | 20 |
+
+160 of 160 found, 0 false alarms, F1 = 1.000 for checks C1 to C6.
+
+I don't trust this result yet. The errors are big (shifts from 5 m, gaps from 20 m) and none of them is close to a tolerance limit, so the checks had nothing to get wrong. The next injector will have smaller errors, under one metre and close to the limits.
+
+Second problem: 40 topology errors gave 2,146 findings and 396 municipalities in REVIEW. A shifted municipality leaves many thin slivers along its border and every sliver is reported to every neighbour. All of it is correct, but nobody will read such a report.
+
+So findings are now grouped by cause. Municipalities are linked when they overlap, when they touch the same gap, or when a broken municipality lies where the gap is. Each linked group is one incident.
+
+Seed 42: 2,335 findings became 170 incidents. All 160 errors are inside an incident, and no incident is made of municipalities that no error touched. I wrote these expectations into git before the code (160 of 160 covered, 160 to 190 incidents).
+
+14 incidents contain only neighbours. A municipality moved to the wrong coordinate system lands far away from the hole it left, so the hole becomes its own incident.
+
+### State border
+
+Before writing the border check I only measured. The state layer from PRG has 322,508.2 km2, all municipalities together 313,731.2 km2.
+
+- One piece of 8,777 km2 next to the coastal municipalities: the sea. The state layer includes it, the municipalities don't.
+- 7,417 thin pieces along the land border, the largest 73.6 m2. The two layers draw the same border with slightly different lines.
+
+If I had written the rule first, the golden dataset would have failed because of the Baltic Sea, with thousands of false alarms. So the rule came after the measurement: pieces above 150 m2 (about two times the largest noise) are findings, and the sea is a known exception.
+
+On a synthetic test the first version gave 7 false alarms: a hole near the coast joined the sea, and the whole coast was reported. Now the sea is stored as a reference geometry, and a hole at the coast stays a separate piece. The change is written down in [`docs/note_1.6_design_change.md`](docs/note_1.6_design_change.md).
+
+Results: golden dataset PASS, sea exception applied once. 20 gaps cut at the state border (E9): 20 found, 0 false alarms.
+
+### Same result on two machines
+
+I built the golden dataset again on a second machine, a rented server, from the same source file. The content hash is the same: `7ab654de80f450ed…`
+
+The hash is calculated from TERYT, name and normalized geometry, not from the file itself. A GeoPackage gets new bytes every time it is saved, so a file hash would not prove anything.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[PRG + TERC] --> B[download_data.py<br/>manifest, hashes]
+    B --> C[build_golden.py<br/>golden dataset]
+    C --> D[inject.py<br/>errors + truth.json]
+    C --> E[measures.py<br/>facts only]
+    D --> E
+    E --> F[checks.py<br/>C1-C6 + params.json]
+    F --> G[run_checks.py<br/>PASS / REVIEW / REJECT]
+    G --> I[incidents.py<br/>findings grouped by cause]
+    I --> R[report.py<br/>QA report, Markdown + HTML]
+    G --> H[evaluate.py<br/>compare with truth.json]
 ```
 
-Żeby uruchomić testy:
+### The checks
+
+| Check | What it looks at | Severity |
+|---|---|---|
+| C1 | geometry valid and not empty | critical |
+| C2 | TERYT: 7 digits, unique, type 1, 2 or 3 | critical |
+| C3 | municipality inside its county | critical |
+| C4 | coordinate system and extent of Poland | critical |
+| C5 | overlaps and gaps between neighbours | high |
+| C6 | name exists and matches TERC | medium |
+| C7 | no gaps and no overhangs at the state border | high |
+
+Thresholds are in [`params.json`](params.json). One critical finding gives REJECT. Only non-critical findings give REVIEW. No findings gives PASS.
+
+### QA report
+
+`report.py` writes a report in Markdown and HTML: status, source and date of the data, coordinate system, results of C1 to C6, all incidents with the probable cause (code and name of the municipality), known exceptions, the parameters with their hash and the code version, and a check that all numbers add up. The report never reads `truth.json`. It shows only what a client would see.
+
+### Rules I follow
+
+- Measuring and judging are separate. `measures.py` only measures (validity, distances, areas of overlaps and gaps, names) and has no thresholds. `checks.py` compares those numbers with `params.json`. I tested the split on 32 synthetic test datasets and the findings stayed exactly the same.
+- The code that decides never reads `truth.json`. Only `evaluate.py` does, after the decision.
+- Rules and expected results go into git before the code that uses them.
+- Numbers must add up. A simple test (statuses must sum to the number of municipalities) already caught a bug in my own code.
+
+## VORO
+
+VORO is my decision system built as a chain of steps: Observation, Identity, Hypothesis, Knowledge, Evidence, Interpretation, Reasoning, Decision, Verification. The core is in a private repository. Here is only the adapter, in [`voro_adapter/`](voro_adapter/): the data provider, the domain package, the patches for VORO and the regression test.
+
+Moving VORO to GIS data showed a weak point. It could only accept or reject one fixed hypothesis. Now it compares three (PASS, REVIEW, REJECT) and picks one:
+
+| Dataset | PASS | REVIEW | REJECT | Decision |
+|---|---|---|---|---|
+| golden | 1.0 | 0.76 | 0.76 | PASS |
+| seed 42 (critical and other errors) | 0.0 | 0.90 | 1.0 | REJECT |
+| seed 7 (only non-critical errors) | 0.76 | 1.0 | 0.90 | REVIEW |
+
+The numbers are readiness for each hypothesis.
+
+How it looked step by step:
+
+| Stage | Result on GIS data |
+|---|---|
+| start | ABSTAIN on every dataset, readiness 0.497. The "strongest signal" was the number of municipalities. |
+| facts and relations added | ACCEPT on every dataset, readiness 1.0. Fully confident, also on the dataset with 160 errors. |
+| three hypotheses compared | PASS, REJECT and REVIEW on the three datasets above |
+
+VORO's first domain (football match data) had a regression test during all changes. Its result did not move, readiness 0.9254 every time.
+
+### Stage 2: decisions checked against the truth
+
+Until now VORO only checked that its decision followed its own reasoning. In stage 2 it is shown the truth, but only **after** it has decided. Then it remembers each case.
+
+- 14 real runs on 14 datasets, 14 of 14 decisions matched the truth.
+- Control test: the same dataset with a wrong truth gives REFUTED, and the decision does not change. So the verdict can be lost, and the truth does not leak into the decision.
+- Each run starts with the memory of the runs before it and still decides on its own evidence.
+- Sensitivity: **one** error of each type among 2,479 municipalities is enough to change the verdict. 10 of 10 found and decided correctly.
+
+One thing I did not expect: one error is not one finding. A single shifted municipality gave 104 findings, a single broken geometry gave 15. One broken polygon drags its neighbours in. This is why the findings are grouped into incidents.
+
+All numbers, tables and the method: [`docs/results_stage2.md`](docs/results_stage2.md). Every step had its expected result committed before the run. The football regression stayed at 0.9254 after every step.
+
+## Quick start
 
 ```bash
-pip install pytest
-pytest test_project.py
+git clone https://github.com/MR73BIIO/voro-gis-qa.git
+cd voro-gis-qa
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### Struktura plików
+TERC must be downloaded by hand from [eteryt.stat.gov.pl](https://eteryt.stat.gov.pl) (TERC, basic version, CSV). Don't open it in Excel and save it again, it can change the codes.
 
-- **`project.py`** — cały program. Zawiera `main()` oraz pięć
-  niezależnie testowalnych funkcji: `add_tree`, `search_by_species`,
-  `filter_by_condition`, `compute_stats`, `needs_inspection`. Plus
-  funkcje wejścia/wyjścia (`load_trees`, `save_trees`, `wczytaj_liczbe`,
-  `wczytaj_stan`, `pokaz_drzewa`, `pokaz_statystyki`), które obsługują
-  konsolę i plik, ale nie są jednostkowo testowane — bo ich zadaniem
-  jest komunikacja ze światem zewnętrznym (input/print/plik), nie logika.
-- **`test_project.py`** — testy dla pięciu głównych funkcji logiki:
-  poprawne dodawanie drzewa (i to, że nie modyfikuje oryginalnej listy),
-  wyszukiwanie, filtrowanie, statystyki (w tym przypadek pustej bazy)
-  oraz wskazywanie drzew do kontroli.
+```bash
+python scripts/download_data.py --terc path/to/TERC_Urzedowy_YYYY-MM-DD.csv
+python scripts/build_golden.py
+python scripts/build_golden.py --verify
 
-### Decyzje projektowe
+python scripts/run_checks.py
+python scripts/inject.py --seed 42 --n 20
+python scripts/run_checks.py --data data/runs/seed_42/corrupted.gpkg
+python scripts/evaluate.py --truth data/runs/seed_42/truth.json
+python scripts/report.py
 
-Najważniejszy podział w tym kodzie to oddzielenie **logiki** od
-**wejścia/wyjścia**. Funkcje takie jak `add_tree` czy `compute_stats`
-nie pytają nikogo o nic i nie drukują niczego na ekran — dostają dane,
-zwracają wynik, i tyle. Dzięki temu można je przetestować bez symulowania
-klawiatury. Cała interakcja z użytkownikiem (pytania, menu, zapis do
-pliku) żyje w osobnych funkcjach, wywoływanych z `main()`.
+python scripts/inject.py --seed 9 --n 20 --types E9   # gaps at the state border
 
-`add_tree` zwraca **nową** listę (`drzewa + [nowe_drzewo]`) zamiast
-modyfikować przekazaną listę w miejscu — to świadoma decyzja, żeby
-funkcja była czysta i przewidywalna przy testowaniu.
+python -m pytest -q tests/
+```
 
-### Pomysły na rozwój
+The `data/` folder is not in the repository. [`manifest.json`](manifest.json) has the source address, the file hashes and the content hash of the golden dataset, so you can rebuild it and compare.
 
-- [ ] Edycja i usuwanie istniejącego drzewa
-- [ ] Współrzędne GPS i eksport do formatu czytelnego dla GIS (np. GeoJSON)
-- [ ] Import danych z inwentaryzacji terenowej / z drona
-- [ ] Prosty interfejs graficzny zamiast konsoli
-- [ ] Eksport raportu z drzewami do kontroli do pliku PDF
+My server outside Poland could not reach `opendata.geoportal.gov.pl`. If you have the same problem, download the PRG package on a machine in Poland, copy it and run `download_data.py --skip-download`.
+
+## Known limitations
+
+- The injected errors are still far from the tolerance limits. Single errors are found (stage 2), but an error just under or just over a threshold is not tested yet.
+- A municipality moved to the wrong coordinate system gives two incidents: one for itself, one for the hole it left.
+- VORO checks its decisions against the truth and remembers them, but it does not learn from them yet. Every confirmed run is marked as a possible basis for learning, nothing more.
+
+## Next steps
+
+1. Learning, but only from what was confirmed by the truth, and only when it was confirmed more than once. Memory may inform a decision, it may not replace it.
+2. Harder errors: close to the limits, hypothesis written down before the test, thresholds tuned on some regions and tested on others. I will publish the result whatever it is.
+3. Real data: OpenStreetMap boundaries compared with PRG, open tree inventories from cities in Germany, Austria and Switzerland.
+
+## Data and license
+
+- PRG: Państwowy Rejestr Granic, Główny Urząd Geodezji i Kartografii (GUGiK), open data.
+- TERC: Krajowy Rejestr Urzędowy Podziału Terytorialnego Kraju (TERYT), Główny Urząd Statystyczny (GUS).
+
+Code under the [MIT License](LICENSE). The data keep the terms of their publishers.
+
+## Series on LinkedIn
+
+I write about each step in a short series, "GIS Workflow" (English), on [LinkedIn](https://www.linkedin.com/in/marcin-ruszczak-27b37b19b). Each post is about one thing that was measured here.
+
+## Author
+
+Marcin Ruszczak, [MR73BIIO](https://github.com/MR73BIIO), [LinkedIn](https://www.linkedin.com/in/marcin-ruszczak-27b37b19b)
+GIS, data validation, Python. Polish, German, Russian, English.
