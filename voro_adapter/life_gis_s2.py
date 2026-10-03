@@ -1,5 +1,5 @@
 """
-VORO - zycia GIS-S2 (krok 2.2). Kolejnosc i liczby: docs/prediction_2_2.md.
+VORO - zycia GIS-S2 (krok 2.2). Kolejnosc i liczby: docs/prediction_2_2.md. Wymaga lat 2.2 i 2.2b.
 
 Uruchom W /root/VORO interpreterem z gis_qa:
     cd /root/VORO && /root/gis_qa/.venv/bin/python /root/gis_qa/voro_adapter/life_gis_s2.py --proba
@@ -71,11 +71,11 @@ def one_life(nr: str, subject: str, tag: str) -> dict:
 def table(start: dict, lives: list) -> None:
     print(f"\nstart: {start}")
     print(f"{'nr':<3} {'zbior':<8} {'wybrano':<7} {'wynik':<10} {'nauka':<6} "
-          f"{'pam.wczyt':<9} {'hist':<4} {'readiness':<9} hash_wiedzy")
+          f"{'pam.wczyt':<9} {'zapis':<5} {'hist':<4} {'readiness':<9} hash_wiedzy")
     for x in lives:
         print(f"{x['nr']:<3} {x['subject']:<8} {x['selected']:<7} {str(x.get('verification_result')):<10} "
               f"{str(x.get('eligible_for_learning')):<6} {str(x.get('memory_loaded')):<9} "
-              f"{str(x.get('historical_relevant')):<4} {str(x.get('reasoning_readiness')):<9} "
+              f"{str(x.get('memory_stored_this_life')):<5} {str(x.get('historical_relevant')):<4} {str(x.get('reasoning_readiness')):<9} "
               f"{str(x.get('knowledge_hash'))[:16]}")
     print(f"koniec: {lives[-1]['counts_after'] if lives else '-'}")
 
@@ -139,7 +139,8 @@ def zycie() -> int:
     fails = []
     for real, rp in zip(lives, ref["lives"]):
         for key in ("subject", "status", "selected", "verification_result",
-                    "eligible_for_learning", "knowledge_hash", "historical_relevant", "evidence"):
+                    "eligible_for_learning", "knowledge_hash", "historical_relevant", "evidence",
+                    "memory_loaded", "memory_stored_this_life"):
             if real.get(key) != rp.get(key):
                 fails.append(f"{real['nr']} {key}: proba={rp.get(key)} zycie={real.get(key)}")
     if out["deltas"] != ref["deltas"]:
