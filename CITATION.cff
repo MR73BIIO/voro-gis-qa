@@ -6,7 +6,8 @@ abstract: >-
   a golden dataset, seven checks (geometry, TERYT codes, county nesting, coordinate
   system, overlaps and gaps, names, state border), controlled error injection with a log
   of every error, evaluation against that log, findings grouped into incidents, and a QA
-  report in Markdown and HTML.
+  report in Markdown and HTML. Version 0.2 adds decisions checked against the truth:
+  14 runs, 14 confirmed, and a sensitivity series where one error of each type is enough.
 type: software
 authors:
   - family-names: Ruszczak
@@ -14,8 +15,8 @@ authors:
     alias: MR73BIIO
 repository-code: "https://github.com/MR73BIIO/voro-gis-qa"
 license: MIT
-version: "0.1"
-date-released: "2026-10-02"
+version: "0.2"
+date-released: "2026-10-05"
 keywords:
   - GIS
   - data quality
