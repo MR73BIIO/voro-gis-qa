@@ -13,10 +13,11 @@ authors:
   - family-names: Ruszczak
     given-names: Marcin
     alias: MR73BIIO
+    orcid: "https://orcid.org/0009-0004-0170-4277"
 repository-code: "https://github.com/MR73BIIO/voro-gis-qa"
 license: MIT
 version: "0.2"
-date-released: "2026-10-05"
+date-released: "2026-10-04"
 keywords:
   - GIS
   - data quality
