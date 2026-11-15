@@ -12,6 +12,10 @@ Dla kazdego wskazanego obrebu:
     i pobiera je kaflami po 2 km; odpowiedzi zostaja w data/raw/egib/ i kolejne uruchomienie
     czyta je z dysku. Filtr po atrybucie nie jest uzywany: usluga odpowiada na niego bledem 500
     (zmierzone 2026-11-15). Okno podawane jest w kolejnosci polnoc,wschod.
+  - kazdy kafel (tez z dysku) jest sprawdzany z licznikiem uslugi. Zmierzone 2026-11-15:
+    licznik = liczba oddanych obiektow + 1 w 9 z 9 kafli, a usluga potrafi oddac pusta,
+    poprawnie zamknieta odpowiedz mimo licznika 1021. Kafel niezgodny jest pobierany ponownie
+    (do 3 razy); jesli dalej sie nie zgadza, obreb nie dostaje pomiaru pokrycia.
   - dzieli dzialki z okna na wlasne (NUMER_OBREBU = numer obrebu) i sasiednie
   - mierzy atrybuty: ksztalt identyfikatora, powtorzenia, zgodnosc identyfikatora z numerem obrebu,
     nazwy obrebu i gminy, puste pola, zakres dat
@@ -46,6 +50,9 @@ ATTRS = ("ID_DZIALKI", "NUMER_DZIALKI", "NAZWA_OBREBU", "NUMER_OBREBU", "NUMER_J
 HEADERS = {"User-Agent": "voro-gis-qa R0 (github.com/MR73BIIO/voro-gis-qa)"}
 TILE_M = 2000          # bok kafla pobierania
 MAX_WINDOW_HITS = 40000  # wieksze okno jest tylko liczone, nie pobierane
+MAX_TILES = 16           # okno z wieksza liczba kafli tez tylko liczone (np. obreb ZATOKA)
+HITS_OFFSET = 1          # licznik uslugi minus liczba oddanych obiektow, zmierzone 2026-11-15
+ATTEMPTS = 3
 
 
 def loc(tag):
@@ -96,31 +103,45 @@ def tiles(bbox):
     return out
 
 
+def tile_ok(n, h):
+    """Czy kafel jest kompletny wzgledem licznika uslugi."""
+    return h is not None and n == max(h - HITS_OFFSET, 0)
+
+
 def fetch(url, nr, bbox, refresh):
-    """Zwraca (lista obiektow bez powtorzen, opis). Kafle z dysku maja pierwszenstwo."""
+    """Zwraca (lista obiektow bez powtorzen, opis, lista kafli niezgodnych)."""
     RAW.mkdir(parents=True, exist_ok=True)
-    feats, seen, from_disk, from_net, raw_count, hit_sum = [], set(), 0, 0, 0, 0
+    feats, seen, bad = [], set(), []
+    stats = Counter()
     for t in tiles(bbox):
         path = RAW / f"dzialki_{nr}_{t[0]}_{t[1]}_{t[2]}_{t[3]}.gml"
-        if path.exists() and not refresh:
-            content = path.read_bytes()
-            from_disk += 1
+        h = count_hits(ask(url, t, hits=True))
+        content = path.read_bytes() if path.exists() and not refresh else None
+        n = len(parse(content)) if content is not None else None
+        if content is not None and tile_ok(n, h):
+            stats["z dysku, zgodne"] += 1
         else:
-            h = count_hits(ask(url, t, hits=True))
-            hit_sum += h or 0
-            content = ask(url, t)
+            if content is not None:
+                stats["z dysku, niezgodne -> ponownie"] += 1
+            for attempt in range(ATTEMPTS):
+                content = ask(url, t)
+                n = len(parse(content))
+                if tile_ok(n, h):
+                    break
+                h = count_hits(ask(url, t, hits=True))
+                if tile_ok(n, h):
+                    break
+                time.sleep(5)
             path.write_bytes(content)
-            from_net += 1
-        part = parse(content)
-        raw_count += len(part)
-        for f in part:
+            stats["z uslugi, zgodne" if tile_ok(n, h) else "z uslugi, NIEZGODNE"] += 1
+        if not tile_ok(n, h):
+            bad.append((t, n, h))
+        for f in parse(content):
             if f[2] not in seen:
                 seen.add(f[2])
                 feats.append(f)
-    note = f"kafli: {from_disk} z dysku, {from_net} z uslugi | obiektow w kaflach: {raw_count}"
-    if from_net:
-        note += f" | suma liczb wg uslugi dla pobranych kafli: {hit_sum}"
-    return feats, note + f" | po usunieciu powtorzen: {len(feats)}"
+    note = f"kafli: {dict(stats)} | po usunieciu powtorzen: {len(feats)}"
+    return feats, note, bad
 
 
 def ring(el):
@@ -272,11 +293,15 @@ def main():
         km2 = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) / 1e6
         hits = count_hits(ask(args.url, bbox, hits=True))
         print(f"  PRG: nazwa '{ref['name'].iloc[0]}' | okno {km2:,.1f} km2 | dzialek w oknie wg uslugi: {hits}")
-        if hits is None or hits > MAX_WINDOW_HITS:
-            print(f"  okno nie jest pobierane (prog {MAX_WINDOW_HITS} obiektow) - tylko liczba")
+        n_tiles = len(tiles(bbox))
+        if hits is None or hits > MAX_WINDOW_HITS or n_tiles > MAX_TILES:
+            print(f"  okno nie jest pobierane (kafli {n_tiles}, prog {MAX_TILES}; "
+                  f"prog obiektow {MAX_WINDOW_HITS}) - tylko liczba")
             continue
-        feats, note = fetch(args.url, nr, bbox, args.refresh)
+        feats, note, bad = fetch(args.url, nr, bbox, args.refresh)
         print(f"  {note}")
+        for t, n, h in bad:
+            print(f"  NIEZGODNY KAFEL {t}: w pliku {n}, licznik uslugi {h}")
         if not feats:
             continue
         gdf = build(feats, True, args.src_crs)
@@ -288,6 +313,9 @@ def main():
         others = gdf[gdf["NUMER_OBREBU"] != nr].reset_index(drop=True)
         print(f"  dzialki wlasne (NUMER_OBREBU = {nr}): {len(own)} | sasiednie w oknie: {len(others)}")
         if own.empty:
+            continue
+        if bad:
+            print("  pomiar pokrycia pominiety: dane niekompletne, wynik bylby artefaktem pobierania")
             continue
         measure_obreb(nr, own, others, prg, args.teryt, rows)
         own["obreb"] = nr
