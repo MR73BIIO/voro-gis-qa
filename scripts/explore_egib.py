@@ -8,11 +8,14 @@ Uzycie (po explore_gdansk.py, ktory zapisuje out/r0_<teryt>.gpkg):
     python scripts/explore_egib.py --refresh        # pobierz jeszcze raz mimo kopii na dysku
 
 Dla kazdego wskazanego obrebu:
-  - pyta usluge o liczbe dzialek (resultType=hits), potem pobiera je jednym zapytaniem z filtrem
-    NUMER_OBREBU; odpowiedz zostaje w data/raw/egib/ i kolejne uruchomienie czyta ja z dysku
+  - bierze okno (BBOX) obrebu z PRG, pyta usluge o liczbe dzialek w oknie (resultType=hits)
+    i pobiera je kaflami po 2 km; odpowiedzi zostaja w data/raw/egib/ i kolejne uruchomienie
+    czyta je z dysku. Filtr po atrybucie nie jest uzywany: usluga odpowiada na niego bledem 500
+    (zmierzone 2026-11-15). Okno podawane jest w kolejnosci polnoc,wschod.
+  - dzieli dzialki z okna na wlasne (NUMER_OBREBU = numer obrebu) i sasiednie
   - mierzy atrybuty: ksztalt identyfikatora, powtorzenia, zgodnosc identyfikatora z numerem obrebu,
     nazwy obrebu i gminy, puste pola, zakres dat
-  - mierzy kolejnosc osi wspolrzednych (ktora daje polozenie w gminie)
+  - sprawdza, ile obiektow po przeliczeniu lezy w gminie (kontrola kolejnosci osi)
   - porownuje z obrebem PRG o tym samym numerze: nazwa, ile dzialek lezy w obrebie,
     kawalki obrebu bez dzialki, kawalki dzialek poza obrebem, nakladanie dzialek
 
@@ -37,10 +40,12 @@ OUT = BASE / "out"
 CRS = "EPSG:2180"
 URL = "https://ewid-wms.gdansk.gda.pl/iip/ows"
 LAYER = "ms:dzialki"
+SRC = "EPSG:2177"
 ATTRS = ("ID_DZIALKI", "NUMER_DZIALKI", "NAZWA_OBREBU", "NUMER_OBREBU", "NUMER_JEDNOSTKI",
          "NAZWA_GMINY", "POLE_EWIDENCYJNE", "KLASOUZYTKI_EGIB", "GRUPA_REJESTROWA", "DATA")
 HEADERS = {"User-Agent": "voro-gis-qa R0 (github.com/MR73BIIO/voro-gis-qa)"}
-ROUND_LIMITS = {100, 500, 1000, 2000, 5000, 10000, 20000, 50000}
+TILE_M = 2000          # bok kafla pobierania
+MAX_WINDOW_HITS = 40000  # wieksze okno jest tylko liczone, nie pobierane
 
 
 def loc(tag):
@@ -61,31 +66,61 @@ def top(values, n=5):
     return [round(float(v), 2) for v in sorted(values, reverse=True)[:n]]
 
 
-def wfs_filter(nr):
-    return ("<ogc:Filter xmlns:ogc=\"http://www.opengis.net/ogc\"><ogc:PropertyIsEqualTo>"
-            "<ogc:PropertyName>NUMER_OBREBU</ogc:PropertyName>"
-            f"<ogc:Literal>{nr}</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter>")
-
-
-def fetch(url, nr, refresh):
-    """Zwraca (bajty GML, liczba wg uslugi albo None, skad). Kopia na dysku ma pierwszenstwo."""
-    RAW.mkdir(parents=True, exist_ok=True)
-    path = RAW / f"dzialki_{nr}.gml"
-    if path.exists() and not refresh:
-        return path.read_bytes(), None, f"z dysku ({path.name})"
-    base = {"service": "WFS", "version": "1.1.0", "request": "GetFeature",
-            "typeName": LAYER, "FILTER": wfs_filter(nr)}
-    hits = None
-    r = requests.get(url, params={**base, "resultType": "hits"}, headers=HEADERS, timeout=120)
-    m = re.search(rb'numberOfFeatures="(\d+)"', r.content)
-    if m:
-        hits = int(m.group(1))
-    time.sleep(2)
-    r = requests.get(url, params=base, headers=HEADERS, timeout=600)
+def ask(url, bbox, hits=False):
+    """Jedno zapytanie GetFeature oknem. bbox = (polnoc_min, wschod_min, polnoc_max, wschod_max)."""
+    params = {"service": "WFS", "version": "1.1.0", "request": "GetFeature", "typeName": LAYER,
+              "BBOX": ",".join(str(v) for v in bbox) + "," + SRC}
+    if hits:
+        params["resultType"] = "hits"
+    r = requests.get(url, params=params, headers=HEADERS, timeout=600)
     r.raise_for_status()
-    path.write_bytes(r.content)
     time.sleep(2)
-    return r.content, hits, f"z uslugi, {len(r.content):,} bajtow, HTTP {r.status_code}"
+    return r.content
+
+
+def count_hits(content):
+    m = re.search(rb'numberOfFeatures="(\d+)"', content)
+    return int(m.group(1)) if m else None
+
+
+def tiles(bbox):
+    n0, e0, n1, e1 = bbox
+    out = []
+    n = n0
+    while n < n1:
+        e = e0
+        while e < e1:
+            out.append((n, e, min(n + TILE_M, n1), min(e + TILE_M, e1)))
+            e += TILE_M
+        n += TILE_M
+    return out
+
+
+def fetch(url, nr, bbox, refresh):
+    """Zwraca (lista obiektow bez powtorzen, opis). Kafle z dysku maja pierwszenstwo."""
+    RAW.mkdir(parents=True, exist_ok=True)
+    feats, seen, from_disk, from_net, raw_count, hit_sum = [], set(), 0, 0, 0, 0
+    for t in tiles(bbox):
+        path = RAW / f"dzialki_{nr}_{t[0]}_{t[1]}_{t[2]}_{t[3]}.gml"
+        if path.exists() and not refresh:
+            content = path.read_bytes()
+            from_disk += 1
+        else:
+            h = count_hits(ask(url, t, hits=True))
+            hit_sum += h or 0
+            content = ask(url, t)
+            path.write_bytes(content)
+            from_net += 1
+        part = parse(content)
+        raw_count += len(part)
+        for f in part:
+            if f[2] not in seen:
+                seen.add(f[2])
+                feats.append(f)
+    note = f"kafli: {from_disk} z dysku, {from_net} z uslugi | obiektow w kaflach: {raw_count}"
+    if from_net:
+        note += f" | suma liczb wg uslugi dla pobranych kafli: {hit_sum}"
+    return feats, note + f" | po usunieciu powtorzen: {len(feats)}"
 
 
 def ring(el):
@@ -119,7 +154,8 @@ def parse(content):
                     holes.append(ring(part))
             if len(ext) >= 4:
                 polys.append((ext, [h for h in holes if len(h) >= 4]))
-        feats.append((attrs, polys))
+        gid = next((v for k, v in el.attrib.items() if loc(k) == "id"), None) or f"brak-id-{len(feats)}"
+        feats.append((attrs, polys, gid))
     return feats
 
 
@@ -128,7 +164,7 @@ def build(feats, swap, src_crs):
     def fix(r):
         return [(b, a) for a, b in r] if swap else r
     rows, geoms = [], []
-    for attrs, polys in feats:
+    for attrs, polys, _ in feats:
         shp = [Polygon(fix(e), [fix(h) for h in hs]) for e, hs in polys]
         geoms.append(None if not shp else shp[0] if len(shp) == 1 else MultiPolygon(shp))
         rows.append(attrs)
@@ -139,23 +175,7 @@ def build(feats, swap, src_crs):
     return gdf.to_crs(CRS)
 
 
-def axis_order(feats, src_crs, gmina_geom):
-    """Mierzy, przy ktorej kolejnosci osi pierwsze obiekty trafiaja w gmine (pas 5 km)."""
-    sample = [f for f in feats if f[1]][:20]
-    zone = gmina_geom.buffer(5000)
-    res = {}
-    for swap in (True, False):
-        try:
-            g = build(sample, swap, src_crs)
-            res[swap] = int(g.geometry.representative_point().within(zone).sum())
-        except Exception:
-            res[swap] = 0
-    print(f"  kolejnosc osi (na {len(sample)} obiektach): polnoc,wschod -> {res[True]} w gminie | "
-          f"wschod,polnoc -> {res[False]} w gminie")
-    return res[True] >= res[False]
-
-
-def measure_obreb(nr, gdf, prg, teryt, rows):
+def measure_obreb(nr, gdf, others, prg, teryt, rows):
     code = f"{teryt[:6]}_{teryt[6]}.{nr}"
     ids = gdf["ID_DZIALKI"]
     print(f"  ksztalty identyfikatora: {dict(Counter(ids.map(pattern)).most_common(6))}")
@@ -181,6 +201,12 @@ def measure_obreb(nr, gdf, prg, teryt, rows):
         return
 
     ref = prg[prg["code"] == code]
+    if len(ref) == 1 and len(others):
+        og = ref.geometry.iloc[0]
+        ok = others[~(others.geometry.isna() | others.geometry.is_empty)]
+        alien = ok[ok.geometry.representative_point().within(og)]
+        print(f"  dzialki o innym numerze obrebu z punktem w tym obrebie PRG: {len(alien)} "
+              f"{dict(Counter(alien['NUMER_OBREBU']).most_common(5))} {alien['ID_DZIALKI'].tolist()[:5]}")
     if len(ref) != 1:
         print(f"  PRG: obiektow o kodzie {code}: {len(ref)} - porownania nie ma")
         return
@@ -231,25 +257,41 @@ def main():
     print(f"Usluga: {args.url} | warstwa: {LAYER} | uklad: {args.src_crs}")
     print(f"PRG: {len(prg)} obrebow z {r0.name}")
 
-    swap, all_gdf, rows = None, [], []
+    global SRC
+    SRC = args.src_crs
+    all_gdf, rows = [], []
     for nr in [n.strip() for n in args.obreby.split(",") if n.strip()]:
         print(f"\n== Obreb {nr} ==")
-        content, hits, src = fetch(args.url, nr, args.refresh)
-        feats = parse(content)
-        note = ""
-        if hits is not None and hits != len(feats):
-            note = f"  <- usluga podala {hits}, pobrano {len(feats)}"
-        elif len(feats) in ROUND_LIMITS:
-            note = "  <- okragla liczba, mozliwy limit uslugi"
-        print(f"  pobrano: {src} | dzialek: {len(feats)} | liczba wg uslugi: {hits}{note}")
+        code = f"{args.teryt[:6]}_{args.teryt[6]}.{nr}"
+        ref = prg[prg["code"] == code]
+        if len(ref) != 1:
+            print(f"  PRG: obiektow o kodzie {code}: {len(ref)} - okna nie ma, pomijam")
+            continue
+        e0, n0, e1, n1 = ref.to_crs(args.src_crs).total_bounds
+        bbox = (int(n0) - 5, int(e0) - 5, int(n1) + 6, int(e1) + 6)
+        km2 = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) / 1e6
+        hits = count_hits(ask(args.url, bbox, hits=True))
+        print(f"  PRG: nazwa '{ref['name'].iloc[0]}' | okno {km2:,.1f} km2 | dzialek w oknie wg uslugi: {hits}")
+        if hits is None or hits > MAX_WINDOW_HITS:
+            print(f"  okno nie jest pobierane (prog {MAX_WINDOW_HITS} obiektow) - tylko liczba")
+            continue
+        feats, note = fetch(args.url, nr, bbox, args.refresh)
+        print(f"  {note}")
         if not feats:
             continue
-        if swap is None:
-            swap = axis_order(feats, args.src_crs, gmina_geom)
-        gdf = build(feats, swap, args.src_crs)
-        measure_obreb(nr, gdf, prg, args.teryt, rows)
-        gdf["obreb"] = nr
-        all_gdf.append(gdf)
+        gdf = build(feats, True, args.src_crs)
+        inside = int(gdf.geometry.representative_point().within(gmina_geom.buffer(5000)).sum())
+        print(f"  po przeliczeniu (polnoc,wschod) w gminie lezy {inside} z {len(gdf)} obiektow")
+        pairs = Counter(zip(gdf["NUMER_OBREBU"], gdf["NAZWA_OBREBU"]))
+        print(f"  obreby w oknie (numer, nazwa w ewidencji): liczba dzialek -> {dict(pairs.most_common(12))}")
+        own = gdf[gdf["NUMER_OBREBU"] == nr].reset_index(drop=True)
+        others = gdf[gdf["NUMER_OBREBU"] != nr].reset_index(drop=True)
+        print(f"  dzialki wlasne (NUMER_OBREBU = {nr}): {len(own)} | sasiednie w oknie: {len(others)}")
+        if own.empty:
+            continue
+        measure_obreb(nr, own, others, prg, args.teryt, rows)
+        own["obreb"] = nr
+        all_gdf.append(own)
 
     if all_gdf:
         target = OUT / f"egib_r0_{args.teryt}.gpkg"
